@@ -1,12 +1,21 @@
 FROM node:20-alpine
 WORKDIR /app
 
-# Railway redeploy trigger: 1783290246
-COPY . .
+# Force full rebuild: 1783290689
+COPY package.json ./
+COPY packages ./packages
+COPY src ./src
+COPY drizzle ./drizzle
+COPY drizzle.config.ts tsconfig.json tsconfig.build.json ./
 
+# Install deps
 RUN npm install --legacy-peer-deps
 
-RUN npm run build
+# Clean any stale compiled output then build fresh
+RUN rm -rf dist && npm run build
+
+# Verify registry-client import is NOT in compiled output
+RUN node -e "const fs=require('fs'); const c=fs.readFileSync('dist/config.js','utf8'); if(c.includes('@atriumind/registry-client')){console.error('FAIL: old import found');process.exit(1)} else console.log('OK: dist/config.js is clean')"
 
 RUN addgroup -S atrium && adduser -S atrium -G atrium
 USER atrium
