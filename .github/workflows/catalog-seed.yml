@@ -64,12 +64,9 @@ jobs:
       - name: Show migration log
         run: cat /tmp/migrate.log 2>/dev/null || echo 'no log'
 
-      - name: Build
-        run: npm run build
-
-      - name: Start server
+      - name: Start server (via tsx — no build needed)
         run: |
-          node dist/index.js &
+          npx tsx src/index.ts &
           for i in 1 2 3 4 5 6 7 8 9 10; do
             sleep 3
             curl -sf http://localhost:3000/health > /dev/null 2>&1 && echo "Server up after ${i}*3s" && break
