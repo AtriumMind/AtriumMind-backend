@@ -1,0 +1,158 @@
+name: Seed Testnet Catalog
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - '.github/workflows/seed-testnet.yml'
+
+jobs:
+  seed:
+    name: Run backend + seed 3 resources
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: atrium
+          POSTGRES_PASSWORD: atrium
+          POSTGRES_DB: atriumind
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://atrium:atrium@localhost:5432/atriumind
+      SUPABASE_URL: https://placeholder.supabase.co
+      SUPABASE_SERVICE_KEY: placeholder
+      SUPABASE_STORAGE_BUCKET: resources
+      STELLAR_NETWORK: testnet
+      STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+      STELLAR_CONTRACT_VAULT_REGISTRY: CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
+      STELLAR_CONTRACT_ACCESS_LEASE: CDQZBCEPN6RCJAQLEKB3ZRNLUZXDCCFMVIS6STZNAOEAQLXD3FUBNQGX
+      STELLAR_CONTRACT_SUBSCRIPTION: CCCE6Q6WHDICGMQWXXXMM6X7YDGK3BXU4JNQJNSIA6XQRC52MQL42CD6
+      STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+      ADMIN_API_KEY: atrium-admin-2025-xK9mP3nQ8rL2vB7s
+      ALLOWED_ORIGINS: "*"
+      PORT: 3000
+      NODE_ENV: test
+      BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with: { version: 9 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run database migrations
+        run: pnpm drizzle-kit migrate
+
+      - name: Build TypeScript
+        run: pnpm build
+
+      - name: Start backend server
+        run: |
+          node dist/index.js &
+          sleep 5
+          curl -sf http://localhost:3000/health && echo "✅ Backend healthy"
+
+      - name: Create Publisher 1 — AtriumMind Research Lab
+        id: pub1
+        run: |
+          RESULT=$(curl -sf -X POST http://localhost:3000/publishers \
+            -H "Content-Type: application/json" \
+            -d '{
+              "name": "AtriumMind Research Lab",
+              "email": "research@atriumind.demo",
+              "walletAddress": "GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6"
+            }')
+          echo "$RESULT"
+          API_KEY=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['apiKey'])")
+          echo "PUB1_KEY=$API_KEY" >> $GITHUB_ENV
+          echo "::notice::Publisher1 API key: $API_KEY"
+
+      - name: Create Publisher 2 — AtriumMind Data Studio
+        run: |
+          RESULT=$(curl -sf -X POST http://localhost:3000/publishers \
+            -H "Content-Type: application/json" \
+            -d '{
+              "name": "AtriumMind Data Studio",
+              "email": "data@atriumind.demo",
+              "walletAddress": "GBXL7OEOSVNSESHD7Q2BYVVA2KPQLSSIRLDSY6HFNYPXHCEBKPNCJQKX"
+            }')
+          echo "$RESULT"
+          API_KEY=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['apiKey'])")
+          echo "PUB2_KEY=$API_KEY" >> $GITHUB_ENV
+          echo "::notice::Publisher2 API key: $API_KEY"
+
+      - name: Publish Resource 1 — Soroban Smart Contract Patterns
+        run: |
+          curl -sf -X POST http://localhost:3000/resources \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $PUB1_KEY" \
+            -d '{
+              "title": "Stellar Soroban Smart Contract Patterns (2025)",
+              "description": "Production-tested Soroban contract patterns: access control, upgradeable proxies, time-locks, circuit breakers, and multi-sig. Includes annotated Rust source for each pattern.",
+              "price": "0.50",
+              "externalUrl": "https://developers.stellar.org/docs/build/smart-contracts/example-contracts"
+            }' && echo "✅ Resource 1 published"
+
+      - name: Publish Resource 2 — Stellar Network Analytics Dataset
+        run: |
+          curl -sf -X POST http://localhost:3000/resources \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $PUB2_KEY" \
+            -d '{
+              "title": "Stellar Network Analytics — Q1 2025 Dataset",
+              "description": "90 days of on-chain Stellar metrics: daily active accounts, payment volume by asset, DEX trade counts, Soroban contract invocations. CSV format, updated weekly.",
+              "price": "1.00",
+              "externalUrl": "https://dashboard.stellar.org"
+            }' && echo "✅ Resource 2 published"
+
+      - name: Publish Resource 3 — x402 Integration Guide
+        run: |
+          curl -sf -X POST http://localhost:3000/resources \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $PUB1_KEY" \
+            -d '{
+              "title": "x402 HTTP Payment Protocol — Complete Integration Guide",
+              "description": "Step-by-step guide to implementing x402 micropayments on Stellar. Covers server middleware, client fetch wrapper, USDC settlement, and receipt verification with Node.js + React examples.",
+              "price": "0.25",
+              "externalUrl": "https://github.com/x402-org/x402"
+            }' && echo "✅ Resource 3 published"
+
+      - name: Verify catalog
+        run: |
+          CATALOG=$(curl -sf http://localhost:3000/resources)
+          COUNT=$(echo "$CATALOG" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('resources', d.get('data', d if isinstance(d,list) else []))))")
+          echo "✅ Catalog has $COUNT resources"
+          echo "::notice::Catalog resource count: $COUNT"
+
+      - name: Admin stats
+        run: |
+          STATS=$(curl -sf http://localhost:3000/admin/stats \
+            -H "X-Admin-Key: atrium-admin-2025-xK9mP3nQ8rL2vB7s")
+          echo "Admin stats: $STATS"
+          echo "::notice::Admin stats: $STATS"
+
+      - name: Job summary
+        run: |
+          echo "## ✅ AtriumMind Backend Seeded" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "3 publishers created, 3 resources published to catalog." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next step:** Deploy to Railway with DATABASE_URL from Supabase/Railway Postgres" >> $GITHUB_STEP_SUMMARY
