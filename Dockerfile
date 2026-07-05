@@ -1,7 +1,7 @@
 FROM node:20-alpine
 WORKDIR /app
 
-# Force fresh build: 1783288770
+# Railway redeploy trigger: 1783290246
 COPY . .
 
 RUN npm install --legacy-peer-deps
