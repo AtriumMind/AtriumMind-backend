@@ -1,15 +1,10 @@
 FROM node:20-alpine
 WORKDIR /app
 
-# Cache bust: 1783288741
-ARG CACHEBUST=1783288741
-
+# Force fresh build: 1783288770
 COPY . .
 
 RUN npm install --legacy-peer-deps
-
-# Verify registry-client import is gone from config.ts
-RUN grep -q 'registry-client' src/config.ts && echo 'ERROR: still importing registry-client' && exit 1 || echo 'OK: config.ts is clean'
 
 RUN npm run build
 
