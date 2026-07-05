@@ -5,7 +5,7 @@ import {
   listResources,
   networkPassphraseForX402,
   type Resource,
-} from "@atriumind/registry-client";
+} from "../../packages/registry-client/src/index.js";
 import { config } from "../config.js";
 import { getLogger } from "../lib/logger.js";
 
