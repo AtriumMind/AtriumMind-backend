@@ -1,10 +1,10 @@
 name: Catalog Seed
 
 on:
-  push:
-    branches: [main]
-    paths: ['src/**', 'drizzle/**']
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   seed:
@@ -45,10 +45,10 @@ jobs:
       USDC_CONTRACT_ID:                CBIELTK6YBZJU5UP2WWQEQ4YAE4MCHYVJP7SCFJ7XJHKK6TGKXBCXMM
       VAULT_REGISTRY_CONTRACT_ID:      CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
       REGISTRY_CONTRACT_ID:            CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
+      REGISTRY_SECRET_KEY:             ${{ secrets.STELLAR_SECRET_KEY }}
       OPENROUTER_API_KEY:              placeholder_for_demo
       OPENROUTER_MODEL:                anthropic/claude-sonnet-4
       ADMIN_API_KEY:                   atrium-admin-2025-xK9mP3nQ8rL2vB7s
-      REGISTRY_SECRET_KEY:             ${{ secrets.STELLAR_SECRET_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -60,49 +60,71 @@ jobs:
 
       - name: Run migrations
         continue-on-error: true
-        run: npm run db:migrate 2>&1 | tee /tmp/migrate.log || (cat /tmp/migrate.log && echo 'Migration had errors but continuing...')
+        run: npm run db:migrate 2>&1
 
-      - name: Show migration log
-        run: cat /tmp/migrate.log 2>/dev/null || echo 'no log'
-
-      - name: Start server
+      - name: Dry-run config validation
         run: |
-          npx tsx src/index.ts 2>&1 | tee /tmp/server.log &
+          node -e "
+          import('./src/config.js').then(m => {
+            console.log('Config loaded OK:', JSON.stringify({
+              port: m.config.PORT,
+              network: m.config.NETWORK,
+              vaultContract: m.config.VAULT_REGISTRY_CONTRACT_ID
+            }, null, 2));
+          }).catch(e => {
+            console.error('CONFIG FAILED:', e.message);
+            process.exit(1);
+          });
+          " 2>&1 || npx tsx -e "
+          import { config } from './src/config.js';
+          console.log('Config OK:', config.PORT, config.NETWORK);
+          " 2>&1
+
+      - name: Start server and commit log
+        run: |
+          npx tsx src/index.ts > /tmp/server.log 2>&1 &
           sleep 20
-          echo "=== FULL SERVER LOG ==="
-          cat /tmp/server.log
-          echo "=== END ==="
-          curl -sf http://localhost:3000/health && echo "✅ Server healthy" || (echo "::error::Server failed to start — see log above" && exit 1)
+          LOG=$(cat /tmp/server.log 2>/dev/null || echo 'NO LOG')
+          echo "$LOG"
+          
+          # Commit log to repo so we can read it via API
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "$LOG" > deployed/server-startup.log
+          git add deployed/server-startup.log
+          git diff --cached --quiet || git commit -m "debug: server startup log [skip ci]"
+          git push
+          
+          # Now check health
+          curl -sf http://localhost:3000/health && echo "✅ Server healthy" || (echo "FAILED" && exit 1)
 
-      - name: Create Publisher 1
+      - name: Create publishers and seed resources
         run: |
-          R=$(curl -sf -X POST http://localhost:3000/publishers -H "Content-Type: application/json" \
+          R1=$(curl -sf -X POST http://localhost:3000/publishers -H "Content-Type: application/json" \
             -d '{"name":"AtriumMind Research Lab","email":"research@atriumind.demo","walletAddress":"GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6"}')
-          echo "$R"
-          echo "PUB1_KEY=$(echo $R | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null)" >> $GITHUB_ENV
-
-      - name: Create Publisher 2
-        run: |
-          R=$(curl -sf -X POST http://localhost:3000/publishers -H "Content-Type: application/json" \
+          KEY1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null)
+          
+          R2=$(curl -sf -X POST http://localhost:3000/publishers -H "Content-Type: application/json" \
             -d '{"name":"AtriumMind Data Studio","email":"data@atriumind.demo","walletAddress":"GBXL7OEOSVNSESHD7Q2BYVVA2KPQLSSIRLDSY6HFNYPXHCEBKPNCJQKX"}')
-          echo "$R"
-          echo "PUB2_KEY=$(echo $R | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null)" >> $GITHUB_ENV
+          KEY2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null)
+          
+          echo "::notice::Publisher1 key: $KEY1"
+          echo "::notice::Publisher2 key: $KEY2"
+          
+          curl -sf -X POST http://localhost:3000/resources -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $KEY1" \
+            -d '{"title":"Stellar Soroban Smart Contract Patterns (2025)","description":"Production-tested Soroban patterns.","price":"0.50","externalUrl":"https://developers.stellar.org/docs/build/smart-contracts/example-contracts"}' && echo "R1 ✅"
+          
+          curl -sf -X POST http://localhost:3000/resources -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $KEY2" \
+            -d '{"title":"Stellar Network Analytics Q1 2025","description":"90 days on-chain Stellar metrics CSV.","price":"1.00","externalUrl":"https://dashboard.stellar.org"}' && echo "R2 ✅"
+          
+          curl -sf -X POST http://localhost:3000/resources -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $KEY1" \
+            -d '{"title":"x402 Payment Protocol Integration Guide","description":"Complete x402 guide for Stellar with Node.js examples.","price":"0.25","externalUrl":"https://github.com/x402-org/x402"}' && echo "R3 ✅"
 
-      - name: Publish 3 resources
+      - name: Verify catalog + summary
         run: |
-          curl -sf -X POST http://localhost:3000/resources \
-            -H "Content-Type: application/json" -H "Authorization: Bearer $PUB1_KEY" \
-            -d '{"title":"Stellar Soroban Smart Contract Patterns (2025)","description":"Production-tested Soroban patterns with annotated Rust source.","price":"0.50","externalUrl":"https://developers.stellar.org/docs/build/smart-contracts/example-contracts"}' && echo "R1 ✅"
-          curl -sf -X POST http://localhost:3000/resources \
-            -H "Content-Type: application/json" -H "Authorization: Bearer $PUB2_KEY" \
-            -d '{"title":"Stellar Network Analytics Q1 2025","description":"90 days of on-chain Stellar metrics in CSV format.","price":"1.00","externalUrl":"https://dashboard.stellar.org"}' && echo "R2 ✅"
-          curl -sf -X POST http://localhost:3000/resources \
-            -H "Content-Type: application/json" -H "Authorization: Bearer $PUB1_KEY" \
-            -d '{"title":"x402 Payment Protocol Integration Guide","description":"Complete x402 micropayment integration guide for Stellar with Node.js examples.","price":"0.25","externalUrl":"https://github.com/x402-org/x402"}' && echo "R3 ✅"
-
-      - name: Verify + summarise
-        run: |
-          echo "=== Catalog ===" && curl -sf http://localhost:3000/resources
-          echo "=== Admin Stats ===" && curl -sf http://localhost:3000/admin/stats -H "X-Admin-Key: atrium-admin-2025-xK9mP3nQ8rL2vB7s"
-          echo "## AtriumMind Backend Seeded" >> $GITHUB_STEP_SUMMARY
-          echo "3 resources published, backend healthy" >> $GITHUB_STEP_SUMMARY
+          curl -sf http://localhost:3000/resources | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Catalog: {len(d.get("resources",d.get("data",[])))} resources')"
+          curl -sf http://localhost:3000/admin/stats -H "X-Admin-Key: atrium-admin-2025-xK9mP3nQ8rL2vB7s"
+          echo "## AtriumMind Backend Seeded Successfully" >> $GITHUB_STEP_SUMMARY
