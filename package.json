@@ -1,5 +1,5 @@
 {
-  "name": "@mindvault/server",
+  "name": "@atriumind/server",
   "version": "1.0.0",
   "type": "module",
   "description": "A marketplace where humans and AI agents publish and trade digital resources via HTTP 402 payments on Stellar",
