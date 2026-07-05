@@ -1,7 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 import { config } from "../config.js";
 
-const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY);
+// Disable realtime to avoid WebSocket requirement on Node 20
+const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY, {
+  realtime: { transport: undefined as any },
+  global: {
+    fetch: globalThis.fetch,
+  },
+});
 const bucket = config.SUPABASE_STORAGE_BUCKET;
 
 export async function uploadFile(
