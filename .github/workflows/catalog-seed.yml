@@ -37,7 +37,7 @@ jobs:
       SUPABASE_SERVICE_KEY:            placeholder_service_key
       SUPABASE_STORAGE_BUCKET:         resources
       STELLAR_NETWORK:                 testnet
-      NETWORK:                         testnet
+      NETWORK:                         stellar:testnet
       SOROBAN_RPC_URL:                 https://soroban-testnet.stellar.org
       FACILITATOR_URL:                 https://www.x402.org/facilitator
       PAY_TO:                          GCK7ALS7EP5DQG4UZMON3XTNUE7SSIW27XW24UOLXDHBOHWEWIGZVPZF
@@ -62,23 +62,6 @@ jobs:
         continue-on-error: true
         run: npm run db:migrate 2>&1
 
-      - name: Dry-run config validation
-        run: |
-          node -e "
-          import('./src/config.js').then(m => {
-            console.log('Config loaded OK:', JSON.stringify({
-              port: m.config.PORT,
-              network: m.config.NETWORK,
-              vaultContract: m.config.VAULT_REGISTRY_CONTRACT_ID
-            }, null, 2));
-          }).catch(e => {
-            console.error('CONFIG FAILED:', e.message);
-            process.exit(1);
-          });
-          " 2>&1 || npx tsx -e "
-          import { config } from './src/config.js';
-          console.log('Config OK:', config.PORT, config.NETWORK);
-          " 2>&1
 
       - name: Start server and commit log
         run: |
