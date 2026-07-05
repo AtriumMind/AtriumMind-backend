@@ -1,8 +1,7 @@
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
-# All imports fixed: 1783293139
-# registryClient.ts -> dist/index.js (pre-compiled JS, accepts bare testnet)
+# Node 22 has native WebSocket — fixes supabase-js realtime error: 1783293364
 COPY . .
 RUN npm install --legacy-peer-deps
 RUN mkdir -p node_modules/@atriumind && \
