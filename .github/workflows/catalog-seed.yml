@@ -65,23 +65,14 @@ jobs:
       - name: Show migration log
         run: cat /tmp/migrate.log 2>/dev/null || echo 'no log'
 
-      - name: Start server (capture startup logs)
+      - name: Start server
         run: |
-          npx tsx src/index.ts > /tmp/server.log 2>&1 &
-          SERVER_PID=$!
-          echo "Server PID: $SERVER_PID"
-          sleep 15
-          echo "=== SERVER LOG ==="
+          npx tsx src/index.ts 2>&1 | tee /tmp/server.log &
+          sleep 20
+          echo "=== FULL SERVER LOG ==="
           cat /tmp/server.log
-          echo "=== END LOG ==="
-          # Check if process is still running
-          if kill -0 $SERVER_PID 2>/dev/null; then
-            echo "Server is running"
-            curl -sf http://localhost:3000/health && echo "Health OK" || echo "Health failed"
-          else
-            echo "Server CRASHED"
-            exit 1
-          fi
+          echo "=== END ==="
+          curl -sf http://localhost:3000/health && echo "✅ Server healthy" || (echo "::error::Server failed to start — see log above" && exit 1)
 
       - name: Create Publisher 1
         run: |
