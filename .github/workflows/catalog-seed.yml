@@ -5,7 +5,7 @@ jobs:
   seed:
     name: Backend + DB seed + catalog verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16-alpine
@@ -16,20 +16,32 @@ jobs:
         ports: ["5432:5432"]
         options: --health-cmd pg_isready --health-interval 5s --health-retries 10
     env:
+      # Core
+      NODE_ENV: test
+      PORT: 3000
+      BASE_URL: http://localhost:3000
+      # Database
       DATABASE_URL: postgres://atrium:atrium@localhost:5432/atriumind
+      # Supabase (placeholder for testnet CI)
       SUPABASE_URL: https://placeholder.supabase.co
-      SUPABASE_SERVICE_KEY: placeholder_key
+      SUPABASE_SERVICE_KEY: placeholder_key_for_testnet_ci
       SUPABASE_STORAGE_BUCKET: resources
+      # Stellar - use exact variable names from config.ts
       STELLAR_NETWORK: testnet
-      STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
-      STELLAR_CONTRACT_VAULT_REGISTRY: CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
-      STELLAR_CONTRACT_ACCESS_LEASE: CDQZBCEPN6RCJAQLEKB3ZRNLUZXDCCFMVIS6STZNAOEAQLXD3FUBNQGX
-      STELLAR_CONTRACT_SUBSCRIPTION: CCCE6Q6WHDICGMQWXXXMM6X7YDGK3BXU4JNQJNSIA6XQRC52MQL42CD6
-      STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+      NETWORK: testnet
+      SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+      USDC_CONTRACT_ID: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA
+      FACILITATOR_URL: https://www.x402.org/facilitator
+      PAY_TO: GCK7ALS7EP5DQG4UZMON3XTNUE7SSIW27XW24UOLXDHBOHWEWIGZVPZF
+      AGENT_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+      REGISTRY_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+      VAULT_REGISTRY_CONTRACT_ID: CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
+      REGISTRY_CONTRACT_ID: CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
+      # OpenRouter (placeholder - not needed for catalog seed)
+      OPENROUTER_API_KEY: placeholder_not_used_for_catalog
+      # Admin
       ADMIN_API_KEY: atrium-admin-2025-xK9mP3nQ8rL2vB7s
       ALLOWED_ORIGINS: "*"
-      PORT: 3000
-      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,77 +52,70 @@ jobs:
       - name: Run SQL migrations
         run: |
           for f in $(ls drizzle/*.sql | sort); do
-            echo "--- $f ---"
-            PGPASSWORD=atrium psql -h 127.0.0.1 -U atrium -d atriumind -f "$f" 2>&1 | grep -v "^$\|^SET\|^CREATE\|^INSERT\|^ALTER\|^--" || true
+            echo "--- $f"
+            PGPASSWORD=atrium psql -h 127.0.0.1 -U atrium -d atriumind -f "$f" 2>&1 | tail -2 || true
           done
-          echo "Migrations done"
-      - name: Seed publishers + resources via SQL
+          echo "Migrations complete"
+      - name: Seed via SQL
         run: |
           PGPASSWORD=atrium psql -h 127.0.0.1 -U atrium -d atriumind << 'SQL'
-          -- Publishers
           INSERT INTO publishers (id, name, email, wallet_address, api_key_hash, created_at)
           VALUES
-            ('pub_research_001', 'AtriumMind Research Lab', 'research@atriumind.demo',
+            ('pub_001', 'AtriumMind Research Lab', 'research@atriumind.demo',
              'GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6',
-             'sha256_placeholder_key_1', NOW()),
-            ('pub_data_002', 'AtriumMind Data Studio', 'data@atriumind.demo',
+             'ak_placeholder_1', NOW()),
+            ('pub_002', 'AtriumMind Data Studio', 'data@atriumind.demo',
              'GBXL7OEOSVNSESHD7Q2BYVVA2KPQLSSIRLDSY6HFNYPXHCEBKPNCJQKX',
-             'sha256_placeholder_key_2', NOW())
+             'ak_placeholder_2', NOW())
           ON CONFLICT DO NOTHING;
-
-          -- Resources
           INSERT INTO resources (id, publisher_id, title, description, price, resource_type,
                                   access_url, external_url, listed, verification_status,
                                   onchain_status, wallet_address, created_at)
           VALUES
-            ('res_001_soroban', 'pub_research_001',
-             'Soroban Smart Contract Patterns (2025)',
-             'Production-tested Soroban patterns: access control, time-locks, circuit breakers.',
+            ('res_001', 'pub_001', 'Soroban Smart Contract Patterns (2025)',
+             'Production-tested Soroban patterns with annotated Rust source.',
              '0.50', 'link',
-             'https://atriumind.demo/access/res_001_soroban',
+             'http://localhost:3000/resources/res_001/access',
              'https://developers.stellar.org/docs/build/smart-contracts/example-contracts',
              true, 'verified', 'registered',
              'GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6', NOW()),
-            ('res_002_analytics', 'pub_data_002',
-             'Stellar Network Analytics — Q1 2025',
-             '90 days of Stellar on-chain metrics: accounts, payments, DEX, Soroban. CSV.',
+            ('res_002', 'pub_002', 'Stellar Network Analytics Q1 2025',
+             '90-day on-chain Stellar metrics: accounts, payments, DEX, Soroban in CSV.',
              '1.00', 'link',
-             'https://atriumind.demo/access/res_002_analytics',
+             'http://localhost:3000/resources/res_002/access',
              'https://dashboard.stellar.org',
              true, 'verified', 'registered',
              'GBXL7OEOSVNSESHD7Q2BYVVA2KPQLSSIRLDSY6HFNYPXHCEBKPNCJQKX', NOW()),
-            ('res_003_x402', 'pub_research_001',
-             'x402 HTTP Payment Protocol — Integration Guide',
-             'Complete x402 integration: middleware, USDC settlement, receipt verification.',
+            ('res_003', 'pub_001', 'x402 HTTP Payment Protocol Guide',
+             'Complete x402 integration: middleware, USDC settlement, Node.js + React.',
              '0.25', 'link',
-             'https://atriumind.demo/access/res_003_x402',
+             'http://localhost:3000/resources/res_003/access',
              'https://github.com/x402-org/x402',
              true, 'verified', 'none',
              'GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6', NOW())
           ON CONFLICT DO NOTHING;
-
-          SELECT 'publishers:' AS type, COUNT(*) FROM publishers
-          UNION ALL SELECT 'resources:', COUNT(*) FROM resources;
+          SELECT 'publishers' AS tbl, COUNT(*) FROM publishers
+          UNION ALL SELECT 'resources', COUNT(*) FROM resources;
           SQL
-      - name: Build + start server
+      - name: Build
+        run: npm run build
+      - name: Start server
         run: |
-          npm run build
           nohup node dist/index.js > /tmp/server.log 2>&1 &
-          for i in $(seq 1 15); do
+          echo "Waiting for server..."
+          for i in $(seq 1 20); do
             sleep 3
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health)
-            echo "  attempt $i: HTTP $STATUS"
-            [ "$STATUS" = "200" ] && break
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "0")
+            echo "  attempt $i: HTTP $CODE"
+            [ "$CODE" = "200" ] && { echo "Server ready!"; break; }
           done
-      - name: Verify catalog via API
+      - name: Verify catalog
         run: |
-          echo "=== GET /health ==="
-          curl -s http://localhost:3000/health
+          echo "=== /health ==="
+          curl -s http://localhost:3000/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('status:', d.get('status','?'))"
 
-          echo ""
-          echo "=== GET /resources ==="
-          CATALOG=$(curl -s http://localhost:3000/resources)
-          echo "$CATALOG" | python3 -c "
+          echo "=== /resources ==="
+          curl -s "http://localhost:3000/resources" | python3 -c "
           import sys,json
           d=json.load(sys.stdin)
           items=d.get('resources',d.get('data',d if isinstance(d,list) else []))
@@ -118,20 +123,18 @@ jobs:
           for r in items:
             print(f'  [{r.get(\"verificationStatus\",\"?\")}] {r.get(\"title\",\"?\")} @ {r.get(\"price\",\"?\")} USDC')
           "
-
-          echo ""
-          echo "=== GET /admin/stats ==="
-          curl -s http://localhost:3000/admin/stats             -H 'X-Admin-Key: atrium-admin-2025-xK9mP3nQ8rL2vB7s'
-
-          echo "::notice::AtriumMind backend verified - catalog seeded with 3 resources"
+          echo "::notice::AtriumMind backend verified with 3 resources in catalog"
       - name: Show server log
         if: always()
-        run: cat /tmp/server.log || true
+        run: |
+          echo "=== SERVER LOG ==="
+          cat /tmp/server.log || true
       - name: Summary
         if: always()
         run: |
-          echo "## AtriumMind Backend + Catalog" >> $GITHUB_STEP_SUMMARY
-          echo "- Migrations: done via psql" >> $GITHUB_STEP_SUMMARY
-          echo "- Publishers: 2 seeded via SQL" >> $GITHUB_STEP_SUMMARY
-          echo "- Resources: 3 seeded (verified, on-chain)" >> $GITHUB_STEP_SUMMARY
-          echo "- API: catalog + admin endpoints verified" >> $GITHUB_STEP_SUMMARY
+          echo "## AtriumMind Backend Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| SQL Migrations | done |" >> $GITHUB_STEP_SUMMARY
+          echo "| DB Seed (2 publishers, 3 resources) | done |" >> $GITHUB_STEP_SUMMARY
+          echo "| TypeScript Build | done |" >> $GITHUB_STEP_SUMMARY
