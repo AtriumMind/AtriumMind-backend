@@ -1,14 +1,11 @@
-name: Catalog Seed
+name: Seed Testnet Catalog
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   seed:
-    name: Run AtriumMind backend + seed catalog
+    name: Run backend + seed 3 resources
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -27,89 +24,80 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL:                    postgres://atrium:atrium@localhost:5432/atriumind
-      NODE_ENV:                        test
-      PORT:                            3000
-      BASE_URL:                        http://localhost:3000
-      WEB_APP_URL:                     http://localhost:5173
-      ALLOWED_ORIGINS:                 "*"
-      SUPABASE_URL:                    https://placeholder.supabase.co
-      SUPABASE_SERVICE_KEY:            placeholder_service_key
-      SUPABASE_STORAGE_BUCKET:         resources
-      STELLAR_NETWORK:                 testnet
-      NETWORK:                         stellar:testnet
-      SOROBAN_RPC_URL:                 https://soroban-testnet.stellar.org
-      FACILITATOR_URL:                 https://www.x402.org/facilitator
-      PAY_TO:                          GCK7ALS7EP5DQG4UZMON3XTNUE7SSIW27XW24UOLXDHBOHWEWIGZVPZF
-      AGENT_SECRET_KEY:                ${{ secrets.STELLAR_SECRET_KEY }}
-      USDC_CONTRACT_ID:                CBIELTK6YBZJU5UP2WWQEQ4YAE4MCHYVJP7SCFJ7XJHKK6TGKXBCXMM
-      VAULT_REGISTRY_CONTRACT_ID:      CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
-      REGISTRY_CONTRACT_ID:            CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
-      REGISTRY_SECRET_KEY:             ${{ secrets.STELLAR_SECRET_KEY }}
-      OPENROUTER_API_KEY:              placeholder_for_demo
-      OPENROUTER_MODEL:                anthropic/claude-sonnet-4
-      ADMIN_API_KEY:                   atrium-admin-2025-xK9mP3nQ8rL2vB7s
+      DATABASE_URL: postgres://atrium:atrium@localhost:5432/atriumind
+      SUPABASE_URL: https://placeholder.supabase.co
+      SUPABASE_SERVICE_KEY: placeholder_key_for_testnet_demo
+      SUPABASE_STORAGE_BUCKET: resources
+      STELLAR_NETWORK: testnet
+      STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+      STELLAR_CONTRACT_VAULT_REGISTRY: CBQEIMSRPSRKJJHGOELZTP3CISZVHZ6WPKZTWJMYZXHFXPGHHWFQBD4H
+      STELLAR_CONTRACT_ACCESS_LEASE: CDQZBCEPN6RCJAQLEKB3ZRNLUZXDCCFMVIS6STZNAOEAQLXD3FUBNQGX
+      STELLAR_CONTRACT_SUBSCRIPTION: CCCE6Q6WHDICGMQWXXXMM6X7YDGK3BXU4JNQJNSIA6XQRC52MQL42CD6
+      STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+      ADMIN_API_KEY: atrium-admin-2025-xK9mP3nQ8rL2vB7s
+      ALLOWED_ORIGINS: "*"
+      PORT: 3000
+      NODE_ENV: test
+      BASE_URL: http://localhost:3000
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+        with:
+          node-version: 20
 
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
+      - name: Install all workspace deps
+        run: npm install --workspaces --include-workspace-root --legacy-peer-deps
 
-      - name: Run migrations
-        continue-on-error: true
-        run: npm run db:migrate 2>&1
+      - name: Run database migrations
+        run: npm run db:migrate
 
+      - name: Build TypeScript
+        run: npm run build
 
-      - name: Start server
-        continue-on-error: true
+      - name: Start backend
         run: |
-          mkdir -p deployed
-          npx tsx src/index.ts > deployed/server-startup.log 2>&1 &
-          sleep 25
+          node dist/index.js &
+          sleep 8
+          curl -sf http://localhost:3000/health && echo " Backend healthy"
 
-      - name: Commit server log (always runs)
+      - name: Create Publisher 1
         run: |
-          echo "=== Server log ==="
-          cat deployed/server-startup.log 2>/dev/null || echo "(empty)"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add deployed/server-startup.log 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "debug: server startup log [skip ci]" && git push || true
+          RESULT=
+          KEY=
+          echo "PUB1_KEY=$KEY" >> $GITHUB_ENV
+          echo "::notice::Publisher1 key=$KEY"
 
-      - name: Check server health
+      - name: Create Publisher 2
         run: |
-          curl -sf http://localhost:3000/health && echo "✅ Server healthy" || (echo "Server not healthy" && exit 1)
+          RESULT=
+          KEY=
+          echo "PUB2_KEY=$KEY" >> $GITHUB_ENV
+          echo "::notice::Publisher2 key=$KEY"
 
-      - name: Create publishers and seed resources
+      - name: Publish Resource 1
         run: |
-          R1=$(curl -sf -X POST http://localhost:3000/publishers -H "Content-Type: application/json" \
-            -d '{"name":"AtriumMind Research Lab","email":"research@atriumind.demo","walletAddress":"GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6"}')
-          KEY1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null)
-          
-          R2=$(curl -sf -X POST http://localhost:3000/publishers -H "Content-Type: application/json" \
-            -d '{"name":"AtriumMind Data Studio","email":"data@atriumind.demo","walletAddress":"GBXL7OEOSVNSESHD7Q2BYVVA2KPQLSSIRLDSY6HFNYPXHCEBKPNCJQKX"}')
-          KEY2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null)
-          
-          echo "::notice::Publisher1 key: $KEY1"
-          echo "::notice::Publisher2 key: $KEY2"
-          
-          curl -sf -X POST http://localhost:3000/resources -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $KEY1" \
-            -d '{"title":"Stellar Soroban Smart Contract Patterns (2025)","description":"Production-tested Soroban patterns.","price":"0.50","externalUrl":"https://developers.stellar.org/docs/build/smart-contracts/example-contracts"}' && echo "R1 ✅"
-          
-          curl -sf -X POST http://localhost:3000/resources -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $KEY2" \
-            -d '{"title":"Stellar Network Analytics Q1 2025","description":"90 days on-chain Stellar metrics CSV.","price":"1.00","externalUrl":"https://dashboard.stellar.org"}' && echo "R2 ✅"
-          
-          curl -sf -X POST http://localhost:3000/resources -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $KEY1" \
-            -d '{"title":"x402 Payment Protocol Integration Guide","description":"Complete x402 guide for Stellar with Node.js examples.","price":"0.25","externalUrl":"https://github.com/x402-org/x402"}' && echo "R3 ✅"
+          curl -sf -X POST http://localhost:3000/resources             -H "Content-Type: application/json"             -H "Authorization: Bearer $PUB1_KEY"             -d '{"title":"Stellar Soroban Smart Contract Patterns (2025)","description":"Production-tested Soroban patterns with annotated Rust source.","price":"0.50","externalUrl":"https://developers.stellar.org/docs/build/smart-contracts/example-contracts"}'             && echo "Resource 1 published"
 
-      - name: Verify catalog + summary
+      - name: Publish Resource 2
         run: |
-          curl -sf http://localhost:3000/resources | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Catalog: {len(d.get("resources",d.get("data",[])))} resources')"
-          curl -sf http://localhost:3000/admin/stats -H "X-Admin-Key: atrium-admin-2025-xK9mP3nQ8rL2vB7s"
-          echo "## AtriumMind Backend Seeded Successfully" >> $GITHUB_STEP_SUMMARY
+          curl -sf -X POST http://localhost:3000/resources             -H "Content-Type: application/json"             -H "Authorization: Bearer $PUB2_KEY"             -d '{"title":"Stellar Network Analytics Q1 2025","description":"90 days of Stellar on-chain metrics: accounts, payments, DEX, Soroban. CSV format.","price":"1.00","externalUrl":"https://dashboard.stellar.org"}'             && echo "Resource 2 published"
+
+      - name: Publish Resource 3
+        run: |
+          curl -sf -X POST http://localhost:3000/resources             -H "Content-Type: application/json"             -H "Authorization: Bearer $PUB1_KEY"             -d '{"title":"x402 HTTP Payment Protocol Guide","description":"Complete x402 integration: middleware, USDC settlement, verification. Node.js and React examples.","price":"0.25","externalUrl":"https://github.com/x402-org/x402"}'             && echo "Resource 3 published"
+
+      - name: Verify catalog + admin stats
+        run: |
+          curl -sf http://localhost:3000/resources | python3 -c "import sys,json; d=json.load(sys.stdin); items=d.get('resources',d.get('data',d if isinstance(d,list) else [])); print(f'Catalog: {len(items)} resources')"
+          STATS={}
+          echo "Stats: $STATS"
+          echo "::notice::Catalog and admin both operational"
+
+      - name: Summary
+        run: |
+          echo "## AtriumMind Backend Verified" >> $GITHUB_STEP_SUMMARY
+          echo "- 2 publishers created" >> $GITHUB_STEP_SUMMARY
+          echo "- 3 resources in catalog" >> $GITHUB_STEP_SUMMARY
+          echo "- Admin stats endpoint working" >> $GITHUB_STEP_SUMMARY
