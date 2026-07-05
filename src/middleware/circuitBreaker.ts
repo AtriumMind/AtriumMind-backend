@@ -1,3 +1,7 @@
+/**
+ * AtriumMind — Circuit Breaker
+ * Wraps outbound service calls to prevent cascade failures on Stellar RPC.
+ */
 import { getLogger } from "../lib/logger.js";
 
 type State = "CLOSED" | "OPEN" | "HALF_OPEN";
@@ -18,37 +22,43 @@ export class CircuitBreaker {
 
   async call<T>(fn: () => Promise<T>): Promise<T> {
     if (this.state === "OPEN") {
-      if (Date.now() < this.nextAttempt) throw new Error(`Circuit [${this.name}] OPEN`);
+      if (Date.now() < this.nextAttempt) {
+        throw new Error(`Circuit [${this.name}] is OPEN — rejecting call`);
+      }
       this.state = "HALF_OPEN";
-      this.log.warn({ circuit: this.name }, "circuit HALF_OPEN");
+      this.log.warn({ circuit: this.name }, "circuit HALF_OPEN — trying probe");
     }
     try {
-      const r = await fn();
+      const result = await fn();
       this.onSuccess();
-      return r;
+      return result;
     } catch (err) {
       this.onFailure();
       throw err;
     }
   }
 
-  private onSuccess() {
+  private onSuccess(): void {
     this.failures = 0;
-    if (this.state === "HALF_OPEN" && ++this.successes >= this.successThreshold) {
-      this.state = "CLOSED";
-      this.successes = 0;
-      this.log.info({ circuit: this.name }, "circuit CLOSED");
+    if (this.state === "HALF_OPEN") {
+      this.successes++;
+      if (this.successes >= this.successThreshold) {
+        this.state = "CLOSED";
+        this.successes = 0;
+        this.log.info({ circuit: this.name }, "circuit CLOSED");
+      }
     }
   }
 
-  private onFailure() {
+  private onFailure(): void {
     this.successes = 0;
-    if (++this.failures >= this.threshold || this.state === "HALF_OPEN") {
+    this.failures++;
+    if (this.failures >= this.threshold || this.state === "HALF_OPEN") {
       this.state = "OPEN";
       this.nextAttempt = Date.now() + this.timeout;
-      this.log.error({ circuit: this.name, next: new Date(this.nextAttempt) }, "circuit OPEN");
+      this.log.error({ circuit: this.name, next: new Date(this.nextAttempt).toISOString() }, "circuit OPEN");
     }
   }
 
-  getState() { return this.state; }
+  getState(): State { return this.state; }
 }
