@@ -1,0 +1,13 @@
+{
+  "name": "@atriumind/registry-client",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.1.0",
+    "buffer": "^6.0.3"
+  }
+}
