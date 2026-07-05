@@ -29,7 +29,6 @@
   "author": "mano.dev",
   "license": "MIT",
   "dependencies": {
-    "@mindvault/registry-client": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.217.0",
     "@opentelemetry/instrumentation-express": "^0.57.0",
@@ -61,7 +60,8 @@
     "prom-client": "^15.1.3",
     "sharp": "^0.35.2",
     "x402-stellar": "^0.2.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@atriumind/registry-client": "file:./packages/registry-client"
   },
   "devDependencies": {
     "@types/compression": "^1.8.1",
