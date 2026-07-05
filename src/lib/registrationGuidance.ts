@@ -1,4 +1,13 @@
-import { networks, resolveStellarNetwork } from "@atriumind/registry-client";
+// Inlined from @atriumind/registry-client
+const NETWORKS = {
+  testnet: { explorerNetwork: "testnet" },
+  mainnet: { explorerNetwork: "public" },
+} as const;
+function resolveStellarNetwork(v: string | undefined): "testnet" | "mainnet" {
+  const s = (v ?? "testnet").toLowerCase();
+  return s === "mainnet" || s === "pubnet" || s === "public" ? "mainnet" : "testnet";
+}
+const networks = NETWORKS;
 import { config } from "../config.js";
 
 const explorerNetwork = networks[resolveStellarNetwork(config.STELLAR_NETWORK)].explorerNetwork;
