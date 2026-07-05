@@ -48,6 +48,11 @@ jobs:
       OPENROUTER_API_KEY:              placeholder_for_demo
       OPENROUTER_MODEL:                anthropic/claude-sonnet-4
       ADMIN_API_KEY:                   atrium-admin-2025-xK9mP3nQ8rL2vB7s
+      REGISTRY_SECRET_KEY:             ${{ secrets.STELLAR_SECRET_KEY }}
+      SUPABASE_URL:                    https://placeholder.supabase.co
+      VERIFICATION_PRICE:              0.10
+      VERIFICATION_PROMPT_COST_PER_1M: 3
+      VERIFICATION_COMPLETION_COST_PER_1M: 15
 
     steps:
       - uses: actions/checkout@v4
