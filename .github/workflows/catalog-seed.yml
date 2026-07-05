@@ -63,23 +63,25 @@ jobs:
         run: npm run db:migrate 2>&1
 
 
-      - name: Start server and commit log
+      - name: Start server
+        continue-on-error: true
         run: |
-          npx tsx src/index.ts > /tmp/server.log 2>&1 &
-          sleep 20
-          LOG=$(cat /tmp/server.log 2>/dev/null || echo 'NO LOG')
-          echo "$LOG"
-          
-          # Commit log to repo so we can read it via API
+          mkdir -p deployed
+          npx tsx src/index.ts > deployed/server-startup.log 2>&1 &
+          sleep 25
+
+      - name: Commit server log (always runs)
+        run: |
+          echo "=== Server log ==="
+          cat deployed/server-startup.log 2>/dev/null || echo "(empty)"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          echo "$LOG" > deployed/server-startup.log
-          git add deployed/server-startup.log
-          git diff --cached --quiet || git commit -m "debug: server startup log [skip ci]"
-          git push
-          
-          # Now check health
-          curl -sf http://localhost:3000/health && echo "✅ Server healthy" || (echo "FAILED" && exit 1)
+          git add deployed/server-startup.log 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "debug: server startup log [skip ci]" && git push || true
+
+      - name: Check server health
+        run: |
+          curl -sf http://localhost:3000/health && echo "✅ Server healthy" || (echo "Server not healthy" && exit 1)
 
       - name: Create publishers and seed resources
         run: |
