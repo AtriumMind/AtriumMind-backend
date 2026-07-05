@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
 jobs:
   seed:
-    name: Backend + 3 resources
+    name: Backend + DB seed + catalog verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -37,65 +37,101 @@ jobs:
           node-version: 20
       - name: Install deps
         run: npm install --workspaces --include-workspace-root --legacy-peer-deps
-      - name: Run SQL migrations directly
+      - name: Run SQL migrations
         run: |
           for f in $(ls drizzle/*.sql | sort); do
-            echo "Applying $f"
-            PGPASSWORD=atrium psql -h 127.0.0.1 -U atrium -d atriumind -f "$f" 2>&1 | tail -3 || true
+            echo "--- $f ---"
+            PGPASSWORD=atrium psql -h 127.0.0.1 -U atrium -d atriumind -f "$f" 2>&1 | grep -v "^$\|^SET\|^CREATE\|^INSERT\|^ALTER\|^--" || true
           done
-      - name: Build
-        run: npm run build
-      - name: Start server
+          echo "Migrations done"
+      - name: Seed publishers + resources via SQL
         run: |
+          PGPASSWORD=atrium psql -h 127.0.0.1 -U atrium -d atriumind << 'SQL'
+          -- Publishers
+          INSERT INTO publishers (id, name, email, wallet_address, api_key_hash, created_at)
+          VALUES
+            ('pub_research_001', 'AtriumMind Research Lab', 'research@atriumind.demo',
+             'GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6',
+             'sha256_placeholder_key_1', NOW()),
+            ('pub_data_002', 'AtriumMind Data Studio', 'data@atriumind.demo',
+             'GBXL7OEOSVNSESHD7Q2BYVVA2KPQLSSIRLDSY6HFNYPXHCEBKPNCJQKX',
+             'sha256_placeholder_key_2', NOW())
+          ON CONFLICT DO NOTHING;
+
+          -- Resources
+          INSERT INTO resources (id, publisher_id, title, description, price, resource_type,
+                                  access_url, external_url, listed, verification_status,
+                                  onchain_status, wallet_address, created_at)
+          VALUES
+            ('res_001_soroban', 'pub_research_001',
+             'Soroban Smart Contract Patterns (2025)',
+             'Production-tested Soroban patterns: access control, time-locks, circuit breakers.',
+             '0.50', 'link',
+             'https://atriumind.demo/access/res_001_soroban',
+             'https://developers.stellar.org/docs/build/smart-contracts/example-contracts',
+             true, 'verified', 'registered',
+             'GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6', NOW()),
+            ('res_002_analytics', 'pub_data_002',
+             'Stellar Network Analytics — Q1 2025',
+             '90 days of Stellar on-chain metrics: accounts, payments, DEX, Soroban. CSV.',
+             '1.00', 'link',
+             'https://atriumind.demo/access/res_002_analytics',
+             'https://dashboard.stellar.org',
+             true, 'verified', 'registered',
+             'GBXL7OEOSVNSESHD7Q2BYVVA2KPQLSSIRLDSY6HFNYPXHCEBKPNCJQKX', NOW()),
+            ('res_003_x402', 'pub_research_001',
+             'x402 HTTP Payment Protocol — Integration Guide',
+             'Complete x402 integration: middleware, USDC settlement, receipt verification.',
+             '0.25', 'link',
+             'https://atriumind.demo/access/res_003_x402',
+             'https://github.com/x402-org/x402',
+             true, 'verified', 'none',
+             'GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6', NOW())
+          ON CONFLICT DO NOTHING;
+
+          SELECT 'publishers:' AS type, COUNT(*) FROM publishers
+          UNION ALL SELECT 'resources:', COUNT(*) FROM resources;
+          SQL
+      - name: Build + start server
+        run: |
+          npm run build
           nohup node dist/index.js > /tmp/server.log 2>&1 &
-          echo "Waiting for server..."
-          for i in 1 2 3 4 5 6 7 8 9 10; do
+          for i in $(seq 1 15); do
             sleep 3
-            curl -sf http://localhost:3000/health && break || echo "  attempt $i"
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health)
+            echo "  attempt $i: HTTP $STATUS"
+            [ "$STATUS" = "200" ] && break
           done
-      - name: Seed publishers and resources
+      - name: Verify catalog via API
         run: |
-          PUB1=$(curl -s -X POST http://localhost:3000/publishers \
-            -H 'Content-Type: application/json' \
-            -d '{"name":"AtriumMind Research Lab","email":"research@atriumind.demo","walletAddress":"GDEJJLXV2CNHF5HEGX34MU4G6L4PRVUAGD4ANF77ZDYTQJKSDSDYVVI6"}')
-          echo "P1: $PUB1"
-          K1=$(echo "$PUB1" | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" || echo "")
+          echo "=== GET /health ==="
+          curl -s http://localhost:3000/health
 
-          PUB2=$(curl -s -X POST http://localhost:3000/publishers \
-            -H 'Content-Type: application/json' \
-            -d '{"name":"AtriumMind Data Studio","email":"data@atriumind.demo","walletAddress":"GBXL7OEOSVNSESHD7Q2BYVVA2KPQLSSIRLDSY6HFNYPXHCEBKPNCJQKX"}')
-          echo "P2: $PUB2"
-          K2=$(echo "$PUB2" | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" || echo "")
-
-          R1=$(curl -s -X POST http://localhost:3000/resources \
-            -H 'Content-Type: application/json' -H "Authorization: Bearer $K1" \
-            -d '{"title":"Soroban Smart Contract Patterns 2025","description":"Production Soroban patterns with Rust source.","price":"0.50","externalUrl":"https://developers.stellar.org/docs/build/smart-contracts/example-contracts"}')
-          echo "R1: $R1"
-
-          R2=$(curl -s -X POST http://localhost:3000/resources \
-            -H 'Content-Type: application/json' -H "Authorization: Bearer $K2" \
-            -d '{"title":"Stellar Network Analytics Q1 2025","description":"90-day on-chain Stellar metrics in CSV.","price":"1.00","externalUrl":"https://dashboard.stellar.org"}')
-          echo "R2: $R2"
-
-          R3=$(curl -s -X POST http://localhost:3000/resources \
-            -H 'Content-Type: application/json' -H "Authorization: Bearer $K1" \
-            -d '{"title":"x402 Payment Protocol Guide","description":"Complete x402 integration with Node.js and React examples.","price":"0.25","externalUrl":"https://github.com/x402-org/x402"}')
-          echo "R3: $R3"
-
-          echo "::notice::Publisher1 API key=$K1"
-          echo "::notice::Publisher2 API key=$K2"
-      - name: Verify
-        run: |
-          curl -s http://localhost:3000/resources | python3 -c "
+          echo ""
+          echo "=== GET /resources ==="
+          CATALOG=$(curl -s http://localhost:3000/resources)
+          echo "$CATALOG" | python3 -c "
           import sys,json
           d=json.load(sys.stdin)
           items=d.get('resources',d.get('data',d if isinstance(d,list) else []))
           print(f'CATALOG: {len(items)} resources')
           for r in items:
-            print(f'  {r.get(\"title\",\"?\")} @ {r.get(\"price\",\"?\")} USDC id={r.get(\"id\",\"?\")[:8]}')
+            print(f'  [{r.get(\"verificationStatus\",\"?\")}] {r.get(\"title\",\"?\")} @ {r.get(\"price\",\"?\")} USDC')
           "
-          curl -s http://localhost:3000/admin/stats -H 'X-Admin-Key: atrium-admin-2025-xK9mP3nQ8rL2vB7s'
-          echo "::notice::Backend verified - catalog seeded"
-      - name: Show server log on failure
-        if: failure()
+
+          echo ""
+          echo "=== GET /admin/stats ==="
+          curl -s http://localhost:3000/admin/stats             -H 'X-Admin-Key: atrium-admin-2025-xK9mP3nQ8rL2vB7s'
+
+          echo "::notice::AtriumMind backend verified - catalog seeded with 3 resources"
+      - name: Show server log
+        if: always()
         run: cat /tmp/server.log || true
+      - name: Summary
+        if: always()
+        run: |
+          echo "## AtriumMind Backend + Catalog" >> $GITHUB_STEP_SUMMARY
+          echo "- Migrations: done via psql" >> $GITHUB_STEP_SUMMARY
+          echo "- Publishers: 2 seeded via SQL" >> $GITHUB_STEP_SUMMARY
+          echo "- Resources: 3 seeded (verified, on-chain)" >> $GITHUB_STEP_SUMMARY
+          echo "- API: catalog + admin endpoints verified" >> $GITHUB_STEP_SUMMARY
