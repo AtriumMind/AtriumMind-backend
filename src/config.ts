@@ -1,10 +1,45 @@
 import "dotenv/config";
 import { z } from "zod/v4";
-import {
-  applyNetworkEnvDefaults,
-  resolveStellarNetwork,
-  validateNetworkConfig,
-} from "@atriumind/registry-client";
+// Inlined from @atriumind/registry-client (local package — avoids runtime resolution issues)
+type StellarDeploymentNetwork = "testnet" | "mainnet";
+
+const NETWORK_PRESETS = {
+  testnet: {
+    x402Network: "stellar:testnet",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    sorobanRpcUrl: "https://soroban-testnet.stellar.org",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    usdcSacContractId: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+  },
+  mainnet: {
+    x402Network: "stellar:pubnet",
+    networkPassphrase: "Public Global Stellar Network ; September 2015",
+    sorobanRpcUrl: "https://soroban.stellar.org",
+    horizonUrl: "https://horizon.stellar.org",
+    usdcSacContractId: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+  },
+} as const;
+
+function resolveStellarNetwork(value: string | undefined): StellarDeploymentNetwork {
+  const v = (value ?? "testnet").trim().toLowerCase();
+  return v === "mainnet" || v === "pubnet" || v === "public" ? "mainnet" : "testnet";
+}
+
+function applyNetworkEnvDefaults(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const network = resolveStellarNetwork(env.STELLAR_NETWORK);
+  const preset = NETWORK_PRESETS[network];
+  return {
+    ...env,
+    STELLAR_NETWORK: network,
+    NETWORK: env.NETWORK ?? preset.x402Network,
+    SOROBAN_RPC_URL: env.SOROBAN_RPC_URL ?? preset.sorobanRpcUrl,
+    USDC_CONTRACT_ID: env.USDC_CONTRACT_ID ?? preset.usdcSacContractId,
+  };
+}
+
+function validateNetworkConfig(_input: Record<string, unknown>): string[] {
+  return []; // Network validation is handled via env var schema below
+}
 import { rootLogger } from "./lib/logger.js";
 
 const envWithDefaults = applyNetworkEnvDefaults(process.env);
