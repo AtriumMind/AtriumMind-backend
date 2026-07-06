@@ -2,8 +2,7 @@ import { Router, type Router as RouterType } from "express";
 import { probeDatabase, probeSorobanRpc } from "../lib/probes.js";
 import { overallReadinessStatus } from "../lib/readiness.js";
 import { isAccepting } from "../lib/lifecycle.js";
-import { db } from "../db/client.js";
-import { sql } from "drizzle-orm";
+import { pgClient } from "../db/client.js";
 
 const router: RouterType = Router();
 
@@ -17,47 +16,36 @@ router.get("/health", (_req, res) => {
 
 router.get("/health/ready", async (_req, res) => {
   if (!isAccepting()) {
-    res.status(503).json({
-      status: "shutting_down",
-      service: "atriumind",
-      timestamp: new Date().toISOString(),
-    });
+    res.status(503).json({ status: "shutting_down", service: "atriumind", timestamp: new Date().toISOString() });
     return;
   }
   const [database, sorobanRpc] = await Promise.all([probeDatabase(), probeSorobanRpc()]);
   const checks = { database, sorobanRpc };
   const status = overallReadinessStatus(checks);
-  const httpStatus = status === "ok" ? 200 : 503;
-  res.status(httpStatus).json({
-    status,
-    service: "atriumind",
-    checks,
-    timestamp: new Date().toISOString(),
-  });
+  res.status(status === "ok" ? 200 : 503).json({ status, service: "atriumind", checks, timestamp: new Date().toISOString() });
 });
 
-// Debug endpoint — diagnose DB connection and query errors
+// Debug DB endpoint
 router.get("/debug/db", async (_req, res) => {
   try {
-    const pub = await db.execute(sql`SELECT count(*) as cnt FROM publishers`);
-    const res2 = await db.execute(sql`SELECT count(*) as cnt FROM resources`);
-    const cols = await db.execute(sql`
-      SELECT column_name, data_type 
-      FROM information_schema.columns 
-      WHERE table_name = 'resources'
-      ORDER BY ordinal_position
-    `);
+    // Use raw postgres client to avoid drizzle abstraction
+    const result = await pgClient`SELECT current_database() as db, current_schema() as schema, version() as pg_version`;
+    const tables = await pgClient`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`;
+    const pubCount = await pgClient`SELECT count(*)::int as cnt FROM publishers`;
+    const resCount = await pgClient`SELECT count(*)::int as cnt FROM resources`;
     res.json({
-      status: "db_ok",
-      publishers: pub.rows[0],
-      resources: res2.rows[0],
-      resource_columns: cols.rows,
+      connection: result[0],
+      tables: tables.map((t: any) => t.table_name),
+      publishers: pubCount[0].cnt,
+      resources: resCount[0].cnt,
     });
   } catch (err: any) {
     res.status(500).json({
       error: err.message,
       code: err.code,
       detail: err.detail,
+      hint: err.hint,
+      query: err.query,
     });
   }
 });
