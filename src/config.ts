@@ -48,7 +48,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().default(4021),
   BASE_URL: z.string().default("http://localhost:4021"),
-  WEB_APP_URL: z.string().url().default("http://localhost:5173"),
+  WEB_APP_URL: z.string().url().or(z.literal("")).default("http://localhost:5173"),
   ALLOWED_ORIGINS: z.string().optional(),
 
   // Stellar / x402 — STELLAR_NETWORK selects preset defaults; individual vars may override.
@@ -60,7 +60,7 @@ const envSchema = z.object({
   USDC_CONTRACT_ID: z.string().min(1),
 
   // Soroban / vault-registry
-  SOROBAN_RPC_URL: z.string().url("SOROBAN_RPC_URL must be a valid URL"),
+  SOROBAN_RPC_URL: z.string().min(1, "SOROBAN_RPC_URL is required"),
   VAULT_REGISTRY_CONTRACT_ID: z.string().min(1, "VAULT_REGISTRY_CONTRACT_ID is required"),
 
   // OpenRouter
@@ -69,7 +69,7 @@ const envSchema = z.object({
 
   // Supabase
   DATABASE_URL: z.string().min(1, "DATABASE_URL (Supabase Postgres connection string) is required"),
-  SUPABASE_URL: z.string().url("SUPABASE_URL must be a valid URL"),
+  SUPABASE_URL: z.string().min(1, "SUPABASE_URL is required"),
   SUPABASE_SERVICE_KEY: z.string().min(1, "SUPABASE_SERVICE_KEY is required"),
   SUPABASE_STORAGE_BUCKET: z.string().default("resources"),
 
@@ -95,7 +95,7 @@ const envSchema = z.object({
   METRICS_TOKEN: z.string().optional(),
 
   // Sentry error tracking — when DSN is set, unhandled errors are reported.
-  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_DSN: z.string().url().optional().or(z.literal("")),
 
   // Verification
   VERIFICATION_PRICE: z.string().default("0.10"),
