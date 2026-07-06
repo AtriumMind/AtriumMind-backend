@@ -1,4 +1,4 @@
-// build: 1783330048
+// build: 1783330237
 import { Client as ContractClient, Spec as ContractSpec } from "@stellar/stellar-sdk/contract";
 export * from "@stellar/stellar-sdk";
 export * as contract from "@stellar/stellar-sdk/contract";
