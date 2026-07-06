@@ -11,7 +11,10 @@ let totalConnections = 0;
 const seenConnections = new Set<number>();
 
 const client = postgres(config.DATABASE_URL, {
-  ssl: config.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
+  ssl: config.DATABASE_URL.includes("localhost") ? false : "require",
+  max: 3,
+  idle_timeout: 20,
+  connect_timeout: 10,
   debug(connId) {
     if (!seenConnections.has(connId)) {
       seenConnections.add(connId);
