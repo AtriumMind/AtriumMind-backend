@@ -169,10 +169,18 @@ router.get("/resources", async (req, res) => {
 
   const filters = { ...parsed.data, limit, offset };
 
-  const [catalog, total] = await Promise.all([
-    listCatalog(filters),
-    countCatalog(hasFilters ? parsed.data : undefined),
-  ]);
+  let catalog: Awaited<ReturnType<typeof listCatalog>>;
+  let total: number;
+  try {
+    [catalog, total] = await Promise.all([
+      listCatalog(filters),
+      countCatalog(hasFilters ? parsed.data : undefined),
+    ]);
+  } catch (err: any) {
+    getLogger().error({ err, event: "catalog_error" }, "catalog query failed");
+    res.status(500).json({ error: err.message, code: err.code, detail: err.detail, hint: err.hint });
+    return;
+  }
 
   const nextOffset = offset + catalog.length < total ? offset + catalog.length : null;
 
